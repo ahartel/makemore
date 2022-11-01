@@ -1,5 +1,6 @@
 use std::io::Write;
 use std::{collections::HashMap, io};
+use tch::Tensor;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 fn read_names() -> Vec<String> {
@@ -14,8 +15,8 @@ fn read_names() -> Vec<String> {
         .collect()
 }
 struct Stoi {
-    fwd: HashMap<char, usize>,
-    inv: HashMap<usize, char>,
+    fwd: HashMap<char, i64>,
+    inv: HashMap<i64, char>,
 }
 
 impl Stoi {
@@ -23,17 +24,16 @@ impl Stoi {
         let fwd = ".abcdefghijklmnopqrstuvwxyz"
             .chars()
             .zip(0..27)
-            .collect::<HashMap<char, usize>>();
-        let inv = ".abcdefghijklmnopqrstuvwxyz"
-            .chars()
-            .enumerate()
-            .collect::<HashMap<usize, char>>();
+            .collect::<HashMap<char, i64>>();
+        let inv = (0..27)
+            .zip(".abcdefghijklmnopqrstuvwxyz".chars())
+            .collect::<HashMap<i64, char>>();
         Stoi { fwd, inv }
     }
-    pub fn map(&self, c: char) -> usize {
+    pub fn map(&self, c: char) -> i64 {
         self.fwd[&c]
     }
-    pub fn inv(&self, idx: usize) -> char {
+    pub fn inv(&self, idx: i64) -> char {
         self.inv[&idx]
     }
 }
@@ -47,15 +47,12 @@ fn print_in_color(s: &str, saturation: u8) {
     stdout.set_color(ColorSpec::new().set_fg(None)).unwrap();
 }
 
-fn print_bigrams(bigrams: &Vec<Vec<usize>>, stoi: &Stoi) {
-    let max = *bigrams
-        .iter()
-        .map(|col| col.iter().max().unwrap())
-        .max()
-        .unwrap() as f32;
+fn print_bigrams(bigrams: &Tensor, stoi: &Stoi) {
+    let max = bigrams.max();
     for row in 0..27 {
         for col in 0..27 {
-            let saturation = (bigrams[row][col] as f32 / max * 256.0) as u8;
+            let saturation = bigrams.get(row).get(col) / &max * 256.0;
+            let saturation = saturation.int64_value(&[]) as u8;
             print_in_color(
                 &format!("  {}{} ", stoi.inv(row), stoi.inv(col)),
                 saturation,
@@ -63,8 +60,12 @@ fn print_bigrams(bigrams: &Vec<Vec<usize>>, stoi: &Stoi) {
         }
         print!("\n");
         for col in 0..27 {
-            let saturation = (bigrams[row][col] as f32 / max * 256.0) as u8;
-            print_in_color(&format!("{:0>4} ", bigrams[row][col]), saturation);
+            let saturation = bigrams.get(row).get(col) / &max * 256.0;
+            let saturation = saturation.int64_value(&[]) as u8;
+            print_in_color(
+                &format!("{:0>4} ", bigrams.get(row).get(col).int64_value(&[])),
+                saturation,
+            );
         }
         print!("\n");
     }
@@ -73,14 +74,30 @@ fn print_bigrams(bigrams: &Vec<Vec<usize>>, stoi: &Stoi) {
 fn main() {
     let names = read_names();
     let stoi = Stoi::new();
-    // let mut bigrams = Tensor::f_zeros(&[27, 27], (Kind::Float, Device::Cpu)).unwrap();
-    let mut bigrams: Vec<Vec<usize>> = vec![vec![0; 27]; 27];
+    let bigrams = extract_bigrams(names, &stoi);
+    print_bigrams(&bigrams, &stoi);
+    // sample_words(5, &bigrams);
+}
+
+fn sample_words(num: usize, bigrams: &[Vec<usize>]) {
+    let probs: Vec<Vec<f32>> = bigrams
+        .iter()
+        .map(|row| {
+            let sum: usize = row.iter().sum();
+            row.iter().map(|v| *v as f32 / sum as f32).collect()
+        })
+        .collect();
+    for _ in 0..num {}
+}
+
+fn extract_bigrams(names: Vec<String>, stoi: &Stoi) -> Tensor {
+    let mut bigrams: Vec<Vec<i64>> = vec![vec![0; 27]; 27];
     for word in names.iter() {
         for (c1, c2) in word.chars().zip(word[1..].chars()) {
-            let idx1 = stoi.map(c1);
-            let idx2 = stoi.map(c2);
+            let idx1 = stoi.map(c1) as usize;
+            let idx2 = stoi.map(c2) as usize;
             bigrams[idx1][idx2] += 1;
         }
     }
-    print_bigrams(&bigrams, &stoi);
+    Tensor::of_slice2(&bigrams)
 }

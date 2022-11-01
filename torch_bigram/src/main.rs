@@ -76,18 +76,25 @@ fn main() {
     let stoi = Stoi::new();
     let bigrams = extract_bigrams(names, &stoi);
     print_bigrams(&bigrams, &stoi);
-    // sample_words(5, &bigrams);
+    sample_words(5, &bigrams, &stoi);
 }
 
-fn sample_words(num: usize, bigrams: &[Vec<usize>]) {
-    let probs: Vec<Vec<f32>> = bigrams
-        .iter()
-        .map(|row| {
-            let sum: usize = row.iter().sum();
-            row.iter().map(|v| *v as f32 / sum as f32).collect()
-        })
-        .collect();
-    for _ in 0..num {}
+fn sample_words(num: usize, bigrams: &Tensor, stoi: &Stoi) {
+    let row_sums = bigrams.sum_to_size(&[27, 1]);
+    let probs = bigrams / row_sums;
+    for _ in 0..num {
+        let mut chars = Vec::new();
+        let mut sampled = 0;
+        loop {
+            sampled = probs.get(sampled).multinomial(1, true).int64_value(&[]);
+            chars.push(stoi.inv(sampled));
+            if sampled == 0 {
+                break;
+            }
+        }
+        let name: String = chars.into_iter().collect();
+        println!("{:?}", name);
+    }
 }
 
 fn extract_bigrams(names: Vec<String>, stoi: &Stoi) -> Tensor {

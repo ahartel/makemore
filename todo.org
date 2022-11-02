@@ -1,5 +1,5 @@
 * TODOs
 ** DONE calculate neg. avg. log likelihood for bigram case
-** TODO implement trigram case
+** DONE implement trigram case
 ** TODO generalize display of tensor to some kind of imshow
 ** TODO implement gradient-base approach for bigram or trigram case

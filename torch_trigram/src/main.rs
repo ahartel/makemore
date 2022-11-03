@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::io::Write;
 use std::{collections::HashMap, io};
 use tch::Tensor;
@@ -14,9 +15,11 @@ fn read_names() -> Vec<String> {
         })
         .collect()
 }
+
+#[derive(Clone)]
 struct Stoi {
-    fwd: HashMap<char, i64>,
-    inv: HashMap<i64, char>,
+    _fwd: HashMap<char, i64>,
+    _inv: HashMap<i64, char>,
 }
 
 impl Stoi {
@@ -28,13 +31,21 @@ impl Stoi {
         let inv = (0..27)
             .zip(".abcdefghijklmnopqrstuvwxyz".chars())
             .collect::<HashMap<i64, char>>();
-        Stoi { fwd, inv }
+        Stoi {
+            _fwd: fwd,
+            _inv: inv,
+        }
     }
     pub fn map(&self, c: char) -> i64 {
-        self.fwd[&c]
+        self._fwd[&c]
     }
     pub fn inv(&self, idx: i64) -> char {
-        self.inv[&idx]
+        self._inv[&idx]
+    }
+    pub fn inv_bigram(&self, idx: i64) -> String {
+        let mut string = String::from(self.inv(idx / 27));
+        string.push(self.inv(idx % 27));
+        string
     }
 }
 
@@ -47,39 +58,57 @@ fn print_in_color(s: &str, saturation: u8) {
     stdout.set_color(ColorSpec::new().set_fg(None)).unwrap();
 }
 
-fn print_bigrams(bigrams: &Tensor, stoi: &Stoi) {
-    let max = bigrams.max();
-    for row in 0..27 {
-        for col in 0..27 {
-            let saturation = bigrams.get(row).get(col) / &max * 256.0;
+#[derive(Debug)]
+struct Error(Cow<'static, str>);
+
+fn print_tensor_2d(
+    tensor: &Tensor,
+    xlabels: Box<dyn Fn(i64) -> String>,
+    ylabels: Box<dyn Fn(i64) -> String>,
+) -> Result<(), Error> {
+    if tensor.size().len() != 2 {
+        return Err(Error("Tensor must have 2 dimensions".into()));
+    }
+    let size = tensor.size();
+    let max = tensor.max();
+    for row in 0..size[0] {
+        for col in 0..size[1] {
+            let saturation = tensor.get(row).get(col) / &max * 256.0;
             let saturation = saturation.int64_value(&[]) as u8;
-            print_in_color(
-                &format!("  {}{} ", stoi.inv(row), stoi.inv(col)),
-                saturation,
-            );
+            print_in_color(&format!(" {}{} ", ylabels(row), xlabels(col)), saturation);
         }
         print!("\n");
-        for col in 0..27 {
-            let saturation = bigrams.get(row).get(col) / &max * 256.0;
+        for col in 0..size[1] {
+            let saturation = tensor.get(row).get(col) / &max * 256.0;
             let saturation = saturation.int64_value(&[]) as u8;
             print_in_color(
-                &format!("{:0>4} ", bigrams.get(row).get(col).int64_value(&[])),
+                &format!("{:0>4} ", tensor.get(row).get(col).int64_value(&[])),
                 saturation,
             );
         }
         print!("\n");
     }
+    Ok(())
+}
+
+fn prepare_labels(stoi: &Stoi) -> (Box<dyn Fn(i64) -> String>, Box<dyn Fn(i64) -> String>) {
+    let stoi_x = stoi.clone();
+    let stoi_y = stoi.clone();
+    let xlabels = Box::new(move |x| String::from(stoi_x.inv(x)));
+    let ylabels = Box::new(move |y| stoi_y.inv_bigram(y));
+    (xlabels, ylabels)
 }
 
 fn main() {
     let names = read_names();
     let stoi = Stoi::new();
     let trigrams = extract_trigrams(&names, &stoi);
-    // print_bigrams(&trigrams, &stoi);
+    let (xlabels, ylabels) = prepare_labels(&stoi);
+    print_tensor_2d(&trigrams, xlabels, ylabels).unwrap();
     let smoothing = trigrams.ones_like();
     let row_sums = (&smoothing + &trigrams).sum_to_size(&[27 * 27, 1]);
     let probs = (trigrams + smoothing) / row_sums;
-    sample_words(5, &probs, &stoi);
+    sample_words(15, &probs, &stoi);
     print_log_likelihood(&names, &probs, &stoi);
 }
 

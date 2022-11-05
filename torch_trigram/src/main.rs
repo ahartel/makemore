@@ -108,11 +108,11 @@ fn main() {
     let smoothing = trigrams.ones_like();
     let row_sums = (&smoothing + &trigrams).sum_to_size(&[27 * 27, 1]);
     let probs = (trigrams + smoothing) / row_sums;
-    sample_words(15, &probs, &stoi);
-    print_log_likelihood(&names, &probs, &stoi);
+    sample_words_trigram(15, &probs, &stoi);
+    print_log_likelihood_trigram(&names, &probs, &stoi);
 }
 
-fn print_log_likelihood(names: &[String], probs: &Tensor, stoi: &Stoi) {
+fn print_log_likelihood_trigram(names: &[String], probs: &Tensor, stoi: &Stoi) {
     let mut total_log_likelihood: f64 = 0.0;
     let mut n = 0;
     for name in names {
@@ -131,7 +131,7 @@ fn print_log_likelihood(names: &[String], probs: &Tensor, stoi: &Stoi) {
     println!("{}", -total_log_likelihood / n as f64);
 }
 
-fn sample_words(num: usize, probs: &Tensor, stoi: &Stoi) {
+fn sample_words_trigram(num: usize, probs: &Tensor, stoi: &Stoi) {
     for _ in 0..num {
         let mut chars = Vec::new();
         let mut last_sampled = 0;

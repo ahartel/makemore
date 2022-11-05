@@ -79,11 +79,11 @@ fn main() {
     let smoothing = bigrams.ones_like();
     let row_sums = (&smoothing + &bigrams).sum_to_size(&[27, 1]);
     let probs = (bigrams + smoothing) / row_sums;
-    sample_words(5, &probs, &stoi);
-    print_log_likelihood(&names, &probs, &stoi);
+    sample_words_bigram(5, &probs, &stoi);
+    print_log_likelihood_bigram(&names, &probs, &stoi);
 }
 
-fn print_log_likelihood(names: &[String], probs: &Tensor, stoi: &Stoi) {
+fn print_log_likelihood_bigram(names: &[String], probs: &Tensor, stoi: &Stoi) {
     let mut total_log_likelihood: f64 = 0.0;
     let mut n = 0;
     for name in names {
@@ -97,7 +97,7 @@ fn print_log_likelihood(names: &[String], probs: &Tensor, stoi: &Stoi) {
     println!("{}", -total_log_likelihood / n as f64);
 }
 
-fn sample_words(num: usize, probs: &Tensor, stoi: &Stoi) {
+fn sample_words_bigram(num: usize, probs: &Tensor, stoi: &Stoi) {
     for _ in 0..num {
         let mut chars = Vec::new();
         let mut sampled = 0;

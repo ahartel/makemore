@@ -1,0 +1,11 @@
+[package]
+name = "bigram_learned"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+csv = "1.1.6"
+tch = "0.8.0"
+termcolor = "1.1.3"

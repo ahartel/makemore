@@ -2,4 +2,4 @@
 ** DONE calculate neg. avg. log likelihood for bigram case
 ** DONE implement trigram case
 ** DONE generalize display of tensor to some kind of imshow
-** TODO implement gradient-base approach for bigram or trigram case
+** DONE implement gradient-base approach for bigram or trigram case

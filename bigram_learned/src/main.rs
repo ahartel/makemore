@@ -13,7 +13,7 @@ fn read_names() -> Vec<String> {
     rdr.deserialize()
         .map(|r| {
             let s: String = r.unwrap();
-            format!("..{s}.").to_string()
+            format!(".{s}.").to_string()
         })
         .collect()
 }
@@ -99,28 +99,44 @@ fn prepare_labels(stoi: &Stoi) -> (Box<dyn Fn(i64) -> String>, Box<dyn Fn(i64) -
     (xlabels, ylabels)
 }
 
-fn calculate_loss(names: &[String], probs: &Tensor, stoi: &Stoi) -> Tensor {
-    let mut total_log_likelihood = Tensor::zeros(&[1], (Kind::Float, DEVICE));
-    let mut n = 0;
+fn calculate_loss(names: &[String], w: &Tensor, stoi: &Stoi) -> Tensor {
+    let mut xs: Vec<i64> = Vec::new();
+    let mut ys: Vec<i64> = Vec::new();
     for name in names {
         for (c1, c2) in name.chars().zip(name[1..].chars()) {
             let idx1 = stoi.map(c1);
             let idx2 = stoi.map(c2);
-            n += 1;
-            total_log_likelihood += probs.get(idx1).get(idx2).log();
+            xs.push(idx1);
+            ys.push(idx2);
         }
     }
-    -total_log_likelihood / n
+    let xs = Tensor::of_slice(&xs);
+    let ys = Tensor::of_slice(&ys).to_dtype(Kind::Int64, false, false);
+    let xenc = xs.onehot(27);
+    let num = xenc.size()[0];
+    let logits = xenc.matmul(w);
+    let counts = logits.exp();
+    let sum = counts.sum_to_size(&[num, 1]);
+    let probs = &counts / sum;
+    let loss = -probs
+        .index(&[Some(Tensor::arange(num, (Kind::Int64, DEVICE))), Some(ys)])
+        .log()
+        .mean(Kind::Float);
+    loss
 }
 
-fn sample_words_bigram(num: usize, probs: &Tensor, stoi: &Stoi) {
+fn sample_words_bigram(num: usize, w: &Tensor, stoi: &Stoi) {
     for _ in 0..num {
         let mut chars = Vec::new();
-        let mut sampled = 0;
+        let mut sampled = Tensor::of_slice(&[0 as i32]);
         loop {
-            sampled = probs.get(sampled).multinomial(1, true).int64_value(&[]);
-            chars.push(stoi.inv(sampled));
-            if sampled == 0 {
+            let x = sampled.onehot(27);
+            let logits = x.matmul(w);
+            let probs = logits.exp() / logits.exp().sum_to_size(&[1]);
+            sampled = probs.multinomial(1, true).squeeze();
+            let sampled_int_value = sampled.int64_value(&[]);
+            chars.push(stoi.inv(sampled_int_value));
+            if sampled_int_value == 0 {
                 break;
             }
         }
@@ -135,15 +151,13 @@ fn main() {
     let mut w = Tensor::randn(&[27, 27], (Kind::Float, DEVICE)).set_requires_grad(true);
     let (xlabels, ylabels) = prepare_labels(&stoi);
     print_tensor_2d(&w, xlabels, ylabels).unwrap();
-    let w_exp = w.exp();
-    let row_sums = w_exp.sum_to_size(&[27, 1]);
-    let probs = w_exp / row_sums;
-    sample_words_bigram(15, &probs, &stoi);
-    let loss = calculate_loss(&names, &probs, &stoi);
-    println!("{}", loss.double_value(&[]));
-    w.zero_grad();
-    loss.backward();
-    w.set_data(&(w.data() + w.grad()));
-    let loss = calculate_loss(&names, &probs, &stoi);
-    println!("{}", loss.double_value(&[]));
+    sample_words_bigram(15, &w, &stoi);
+    for i in 0..100 {
+        let loss = calculate_loss(&names, &w, &stoi);
+        println!("Loss after {} iterations: {}", i, loss.double_value(&[]));
+        w.zero_grad();
+        loss.backward();
+        w.set_data(&(w.data() - 10.0 * w.grad()));
+    }
+    sample_words_bigram(15, &w, &stoi);
 }

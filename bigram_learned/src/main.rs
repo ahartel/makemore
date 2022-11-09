@@ -63,8 +63,8 @@ struct Error(Cow<'static, str>);
 /// relative magnitude of values will be indicated by grey values
 fn print_tensor_2d(
     tensor: &Tensor,
-    xlabels: Box<dyn Fn(i64) -> String>,
-    ylabels: Box<dyn Fn(i64) -> String>,
+    xlabels: impl Fn(i64) -> String,
+    ylabels: impl Fn(i64) -> String,
 ) -> Result<(), Error> {
     if tensor.size().len() != 2 {
         return Err(Error("Tensor must have 2 dimensions".into()));
@@ -147,17 +147,18 @@ fn sample_words_bigram(num: usize, w: &Tensor, stoi: &Stoi) {
 
 fn main() {
     let names = read_names();
-    let stoi = Stoi::new();
+    let tokenizer = Stoi::new();
     let mut w = Tensor::randn(&[27, 27], (Kind::Float, DEVICE)).set_requires_grad(true);
-    let (xlabels, ylabels) = prepare_labels(&stoi);
-    print_tensor_2d(&w, xlabels, ylabels).unwrap();
-    sample_words_bigram(15, &w, &stoi);
-    for i in 0..100 {
-        let loss = calculate_loss(&names, &w, &stoi);
+    let (xlabels, ylabels) = prepare_labels(&tokenizer);
+    print_tensor_2d(&w, &xlabels, &ylabels).unwrap();
+    sample_words_bigram(15, &w, &tokenizer);
+    for i in 0..200 {
+        let loss = calculate_loss(&names, &w, &tokenizer);
         println!("Loss after {} iterations: {}", i, loss.double_value(&[]));
         w.zero_grad();
         loss.backward();
-        w.set_data(&(w.data() - 10.0 * w.grad()));
+        w.set_data(&(w.data() - 20.0 * w.grad()));
     }
-    sample_words_bigram(15, &w, &stoi);
+    print_tensor_2d(&w, &xlabels, &ylabels).unwrap();
+    sample_words_bigram(15, &w, &tokenizer);
 }

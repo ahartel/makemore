@@ -73,14 +73,14 @@ fn print_bigrams(bigrams: &Tensor, stoi: &Stoi) {
 
 fn main() {
     let names = read_names();
-    let stoi = Stoi::new();
-    let bigrams = extract_bigrams(&names, &stoi);
-    print_bigrams(&bigrams, &stoi);
+    let tokenizer = Stoi::new();
+    let bigrams = extract_bigrams(&names, &tokenizer);
+    print_bigrams(&bigrams, &tokenizer);
     let smoothing = bigrams.ones_like();
     let row_sums = (&smoothing + &bigrams).sum_to_size(&[27, 1]);
     let probs = (bigrams + smoothing) / row_sums;
-    sample_words_bigram(5, &probs, &stoi);
-    print_log_likelihood_bigram(&names, &probs, &stoi);
+    sample_words_bigram(5, &probs, &tokenizer);
+    print_log_likelihood_bigram(&names, &probs, &tokenizer);
 }
 
 fn print_log_likelihood_bigram(names: &[String], probs: &Tensor, stoi: &Stoi) {
@@ -114,7 +114,7 @@ fn sample_words_bigram(num: usize, probs: &Tensor, stoi: &Stoi) {
 }
 
 fn extract_bigrams(names: &[String], stoi: &Stoi) -> Tensor {
-    let mut bigrams: Vec<Vec<i64>> = vec![vec![0; 27]; 27];
+    let mut bigrams = [[0; 27]; 27];
     for word in names {
         for (c1, c2) in word.chars().zip(word[1..].chars()) {
             let idx1 = stoi.map(c1) as usize;

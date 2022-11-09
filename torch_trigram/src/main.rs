@@ -154,7 +154,7 @@ fn sample_words_trigram(num: usize, probs: &Tensor, stoi: &Stoi) {
 }
 
 fn extract_trigrams(names: &[String], stoi: &Stoi) -> Tensor {
-    let mut trigrams: Vec<Vec<i64>> = vec![vec![0; 27]; 27 * 27];
+    let mut trigrams = [[0; 27]; 27 * 27];
     for word in names {
         for ((c1, c2), c3) in word.chars().zip(word[1..].chars()).zip(word[2..].chars()) {
             let idx1 = stoi.map(c1) as usize;

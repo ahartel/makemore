@@ -92,11 +92,11 @@ fn print_tensor_2d(
     Ok(())
 }
 
-fn prepare_labels(stoi: &Stoi) -> (Box<dyn Fn(i64) -> String>, Box<dyn Fn(i64) -> String>) {
+fn prepare_labels(stoi: &Stoi) -> (impl Fn(i64) -> String, impl Fn(i64) -> String) {
     let stoi_x = stoi.clone();
     let stoi_y = stoi.clone();
-    let xlabels = Box::new(move |x| String::from(stoi_x.inv(x)));
-    let ylabels = Box::new(move |y| String::from(stoi_y.inv(y)));
+    let xlabels = move |x| String::from(stoi_x.inv(x));
+    let ylabels = move |y| String::from(stoi_y.inv(y));
     (xlabels, ylabels)
 }
 
@@ -108,11 +108,16 @@ fn forward_pass(training_x: &Tensor, parameters: &[Tensor; 5]) -> Tensor {
     logits
 }
 
-fn prepare_training_dataset(names: &[String], tokenizer: &Stoi) -> (Tensor, Tensor) {
+fn prepare_dataset(
+    names: &[String],
+    tokenizer: &Stoi,
+    skip: usize,
+    take: usize,
+) -> (Tensor, Tensor) {
     const BLOCK_SIZE: usize = 3;
     let mut xs: Vec<[i64; BLOCK_SIZE]> = Vec::new();
     let mut ys: Vec<i64> = Vec::new();
-    for name in names.iter().take(10) {
+    for name in names.iter().skip(skip).take(take) {
         for (x1, x2, x3, y) in izip!(
             name.chars(),
             name.chars().skip(1),
@@ -132,6 +137,38 @@ fn prepare_training_dataset(names: &[String], tokenizer: &Stoi) -> (Tensor, Tens
     (xs, ys)
 }
 
+fn backward_pass(loss: &Tensor, parameters: &mut [Tensor; 5], learning_rate: f32) {
+    for param in parameters.iter_mut() {
+        param.zero_grad();
+    }
+
+    loss.backward();
+
+    for param in parameters {
+        param.set_data(&(param.data() + learning_rate * param.grad()));
+    }
+}
+
+fn sample_words(num: usize, parameters: &[Tensor; 5], stoi: &Stoi) {
+    for _ in 0..num {
+        let mut chars = Vec::new();
+        let mut input = Tensor::zeros(&[1, 3], (Kind::Int64, DEVICE));
+        loop {
+            let next_logits = forward_pass(&input, parameters);
+            let probs = next_logits.softmax(1, Kind::Float);
+            let sampled = probs.multinomial(1, true);
+            let sampled_int_value = sampled.int64_value(&[]);
+            chars.push(stoi.inv(sampled_int_value));
+            if sampled_int_value == 0 {
+                break;
+            }
+            input = Tensor::cat(&[input.slice(1, 1, 3, 1), sampled], 1);
+        }
+        let name: String = chars.into_iter().collect();
+        println!("{:?}", name);
+    }
+}
+
 fn main() {
     let names = read_names();
     println!("Loaded {} names", names.len());
@@ -140,45 +177,43 @@ fn main() {
     }
     let tokenizer = Stoi::new();
     let mut parameters: [Tensor; 5] = [
-        Tensor::randn(&[27, 2], (Kind::Float, DEVICE)).set_requires_grad(true),
-        Tensor::randn(&[6, 100], (Kind::Float, DEVICE)).set_requires_grad(true),
-        Tensor::randn(&[100], (Kind::Float, DEVICE)).set_requires_grad(true),
-        Tensor::randn(&[100, 27], (Kind::Float, DEVICE)).set_requires_grad(true),
+        // embedding
+        Tensor::randn(&[27, 5], (Kind::Float, DEVICE)).set_requires_grad(true),
+        // hidden layer weights and biases
+        Tensor::randn(&[15, 50], (Kind::Float, DEVICE)).set_requires_grad(true),
+        Tensor::randn(&[50], (Kind::Float, DEVICE)).set_requires_grad(true),
+        // output layer weights and biases
+        Tensor::randn(&[50, 27], (Kind::Float, DEVICE)).set_requires_grad(true),
         Tensor::randn(&[27], (Kind::Float, DEVICE)).set_requires_grad(true),
     ];
-    let (training_x, training_y) = prepare_training_dataset(&names, &tokenizer);
-
-    for _ in 0..100 {
-        let logits = forward_pass(&training_x, &parameters);
-        let loss = logits.cross_entropy_for_logits(&training_y);
-        // let probs = logits.softmax(1, Kind::Float);
-        // let loss = -probs
-        //     .index(&[
-        //         Some(Tensor::arange(probs.size()[0], (Kind::Int64, DEVICE))),
-        //         Some(training_y),
-        //     ])
-        //     .log()
-        //     .mean(Kind::Float)
-        //     .double_value(&[]);
-        println!("Loss: {}", loss.double_value(&[]));
-        backward_pass(&loss, &mut parameters);
+    let training_end_index = names.len() / 100 * 80;
+    let (training_x, training_y) = prepare_dataset(&names, &tokenizer, 0, training_end_index);
+    let dev_end_index = training_end_index + names.len() / 100 * 10;
+    let (dev_x, dev_y) = prepare_dataset(
+        &names,
+        &tokenizer,
+        training_end_index,
+        names.len() / 100 * 10,
+    );
+    let (test_x, test_y) =
+        prepare_dataset(&names, &tokenizer, dev_end_index, names.len() / 100 * 10);
+    println!("{:?},{:?}", training_x.size(), training_y.size());
+    for run in 0..100000 {
+        let batch_indices = Tensor::randint(training_x.size()[0], &[32], (Kind::Int64, DEVICE));
+        let logits = forward_pass(&training_x.index(&[Some(&batch_indices)]), &parameters);
+        let loss = logits.cross_entropy_for_logits(&training_y.index(&[Some(&batch_indices)]));
+        let learning_rate = if run < 50000 { -0.1 } else { -0.01 };
+        backward_pass(&loss, &mut parameters, learning_rate);
     }
     let logits = forward_pass(&training_x, &parameters);
-    let probs = logits.softmax(1, Kind::Float);
-    let (xlabels, ylabels) = prepare_labels(&tokenizer);
-    print_tensor_2d(&probs, xlabels, ylabels).unwrap();
-}
+    let loss = logits.cross_entropy_for_logits(&training_y);
+    println!("Loss on train: {}", loss.double_value(&[]));
 
-fn backward_pass(loss: &Tensor, parameters: &mut [Tensor; 5]) {
-    let rate = -0.1;
-
-    for param in parameters.iter_mut() {
-        param.zero_grad();
-    }
-
-    loss.backward();
-
-    for param in parameters {
-        param.set_data(&(param.data() + rate * param.grad()));
-    }
+    let logits = forward_pass(&dev_x, &parameters);
+    let loss = logits.cross_entropy_for_logits(&dev_y);
+    println!("Loss on dev: {}", loss.double_value(&[]));
+    sample_words(10, &parameters, &tokenizer);
+    // let probs = logits.softmax(1, Kind::Float);
+    // let (xlabels, ylabels) = prepare_labels(&tokenizer);
+    // print_tensor_2d(&probs, xlabels, ylabels).unwrap();
 }

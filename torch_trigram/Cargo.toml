@@ -7,5 +7,5 @@ edition = "2021"
 
 [dependencies]
 csv = "1.1.6"
-tch = "0.8.0"
+tch = {version="0.13.0", features=[]}
 termcolor = "1.1.3"
